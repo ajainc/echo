@@ -17,6 +17,12 @@ type (
 		Bind(interface{}, Context) error
 	}
 
+	// BindUnmarshaler is the interface used to wrap the UnmarshalParam method.
+	BindUnmarshaler interface {
+		// UnmarshalParam decodes and assigns a value from an form or query param.
+		UnmarshalParam(param string) error
+	}
+
 	binder struct{}
 )
 
@@ -96,6 +102,13 @@ func (b *binder) bindData(ptr interface{}, data map[string][]string) error {
 			continue
 		}
 
+		if ok, err := unmarshalField(typeField.Type.Kind(), inputValue[0], structField); ok {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
 		numElems := len(inputValue)
 		if structFieldKind == reflect.Slice && numElems > 0 {
 			sliceOf := structField.Type().Elem().Kind()
@@ -116,6 +129,65 @@ func (b *binder) bindData(ptr interface{}, data map[string][]string) error {
 }
 
 func setWithProperType(valueKind reflect.Kind, val string, structField reflect.Value) error {
+
+	if ok, err := unmarshalField(valueKind, val, structField); ok {
+		return err
+	}
+
+	//
+	if valueKind == reflect.Ptr {
+
+		switch structField.Type() {
+		case reflect.TypeOf(Int):
+			intVal, _ := strconv.ParseInt(val, 10, 0)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Int8):
+			intVal, _ := strconv.ParseInt(val, 10, 8)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Int16):
+			intVal, _ := strconv.ParseInt(val, 10, 16)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Int32):
+			intVal, _ := strconv.ParseInt(val, 10, 32)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Int64):
+			intVal, _ := strconv.ParseInt(val, 10, 64)
+			structField.Set(reflect.ValueOf(&intVal))
+
+		case reflect.TypeOf(Uint):
+			intVal, _ := strconv.ParseUint(val, 10, 0)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Uint8):
+			intVal, _ := strconv.ParseUint(val, 10, 8)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Uint16):
+			intVal, _ := strconv.ParseUint(val, 10, 16)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Uint32):
+			intVal, _ := strconv.ParseUint(val, 10, 32)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Uint64):
+			intVal, _ := strconv.ParseUint(val, 10, 64)
+			structField.Set(reflect.ValueOf(&intVal))
+
+		case reflect.TypeOf(Float32):
+			intVal, _ := strconv.ParseFloat(val, 32)
+			structField.Set(reflect.ValueOf(&intVal))
+		case reflect.TypeOf(Float64):
+			intVal, _ := strconv.ParseFloat(val, 64)
+			structField.Set(reflect.ValueOf(&intVal))
+
+
+		case reflect.TypeOf(String):
+			structField.Set(reflect.ValueOf(&val))
+
+		case reflect.TypeOf(Bool):
+			boolVal, _ := strconv.ParseBool(val)
+			structField.Set(reflect.ValueOf(&boolVal))
+		}
+
+	}
+
 	switch valueKind {
 	case reflect.Int:
 		return setIntField(val, 0, structField)
@@ -193,4 +265,42 @@ func setFloatField(value string, bitSize int, field reflect.Value) error {
 		field.SetFloat(floatVal)
 	}
 	return err
+}
+
+func unmarshalField(valueKind reflect.Kind, val string, field reflect.Value) (bool, error) {
+	switch valueKind {
+	case reflect.Ptr:
+		return unmarshalFieldPtr(val, field)
+	default:
+		return unmarshalFieldNonPtr(val, field)
+	}
+}
+
+func bindUnmarshaler(field reflect.Value) (BindUnmarshaler, bool) {
+	ptr := reflect.New(field.Type())
+	if ptr.CanInterface() {
+		iface := ptr.Interface()
+		if unmarshaler, ok := iface.(BindUnmarshaler); ok {
+			return unmarshaler, ok
+		}
+	}
+	return nil, false
+}
+
+
+func unmarshalFieldNonPtr(value string, field reflect.Value) (bool, error) {
+	if unmarshaler, ok := bindUnmarshaler(field); ok {
+		err := unmarshaler.UnmarshalParam(value)
+		field.Set(reflect.ValueOf(unmarshaler).Elem())
+		return true, err
+	}
+	return false, nil
+}
+
+func unmarshalFieldPtr(value string, field reflect.Value) (bool, error) {
+	if field.IsNil() {
+		// Initialize the pointer to a nil value
+		field.Set(reflect.New(field.Type().Elem()))
+	}
+	return unmarshalFieldNonPtr(value, field.Elem())
 }
